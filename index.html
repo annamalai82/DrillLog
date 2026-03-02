@@ -1,17 +1,1192 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <meta name="theme-color" content="#0B0E14" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="description" content="DrillLog Pro - Field drilling data capture and sync for mining & exploration" />
-    <title>DrillLog Pro</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="./src/main.jsx"></script>
-  </body>
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover"/>
+<meta name="theme-color" content="#0B0E14"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<title>DrillLog Pro</title>
+<style>*{margin:0;padding:0;box-sizing:border-box}html,body,#root{height:100%;width:100%;overflow:hidden}body{background:#0B0E14}</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script type="text/babel" data-type="module">
+const { useState, useEffect, useCallback, useRef, createElement } = React;
+
+
+// ─── PERSISTENCE LAYER (simulates local SQLite on Android) ───
+const DB = {
+  save: (key, val) => { try { /* localStorage disabled */ } catch(e) {} },
+  load: (key, fallback) => fallback,
+};
+
+// ─── SEED DATA ───
+const LITHOLOGY_CODES = [
+  { code: "GNS", name: "Gneiss", color: "#8B4513", group: "Metamorphic" },
+  { code: "GRT", name: "Granite", color: "#DEB887", group: "Ignite" },
+  { code: "BAS", name: "Basalt", color: "#2F4F4F", group: "Ignite" },
+  { code: "QTZ", name: "Quartzite", color: "#F5F5DC", group: "Metamorphic" },
+  { code: "SLT", name: "Siltstone", color: "#BC8F8F", group: "Sedimentary" },
+  { code: "SST", name: "Sandstone", color: "#F4A460", group: "Sedimentary" },
+  { code: "LST", name: "Limestone", color: "#D2B48C", group: "Sedimentary" },
+  { code: "SHL", name: "Shale", color: "#696969", group: "Sedimentary" },
+  { code: "DOL", name: "Dolomite", color: "#FAEBD7", group: "Sedimentary" },
+  { code: "SCH", name: "Schist", color: "#556B2F", group: "Metamorphic" },
+  { code: "MBL", name: "Marble", color: "#FFFAF0", group: "Metamorphic" },
+  { code: "GAB", name: "Gabbro", color: "#3B3B3B", group: "Ignite" },
+  { code: "AND", name: "Andesite", color: "#808080", group: "Ignite" },
+  { code: "RHY", name: "Rhyolite", color: "#C0C0C0", group: "Ignite" },
+  { code: "PEG", name: "Pegmatite", color: "#FFE4C4", group: "Ignite" },
+];
+
+const ALTERATION_TYPES = ["Fresh", "Slight", "Moderate", "Strong", "Intense", "Pervasive"];
+const MINERALIZATION = ["Pyrite", "Chalcopyrite", "Magnetite", "Hematite", "Galena", "Sphalerite", "Gold", "Quartz Vein", "Calcite Vein"];
+const WEATHERING = ["Fresh (W1)", "Slightly (W2)", "Moderately (W3)", "Highly (W4)", "Completely (W5)", "Residual Soil (W6)"];
+const RQD_RATINGS = ["Very Poor (0-25%)", "Poor (25-50%)", "Fair (50-75%)", "Good (75-90%)", "Excellent (90-100%)"];
+const STRUCTURE_TYPES = ["Foliation", "Bedding", "Joint", "Fault", "Shear Zone", "Fracture", "Vein", "Contact"];
+const SAMPLE_TYPES = ["HQ Core", "NQ Core", "PQ Core", "RC Chips", "Soil", "Rock Chip", "Stream Sediment"];
+const QC_TYPES = ["Standard", "Blank", "Duplicate", "Field Duplicate", "Crush Duplicate", "Pulp Duplicate"];
+const DRILL_METHODS = ["Diamond Core (DD)", "Reverse Circulation (RC)", "Air Core (AC)", "RAB", "Auger"];
+const SHIFT_TYPES = ["Day Shift", "Night Shift"];
+
+const generateId = () => Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
+
+// ─── ICONS (inline SVG) ───
+const Icon = ({ d, size = 20, color = "currentColor", ...props }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <path d={d} />
+  </svg>
+);
+
+const Icons = {
+  menu: "M3 12h18M3 6h18M3 18h18",
+  home: "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z",
+  log: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8",
+  drill: "M12 2v20M8 6l4-4 4 4M6 12h12M8 18l4 4 4-4",
+  sample: "M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4zM3 6h18M10 10a2 2 0 1 0 4 0",
+  sync: "M23 4v6h-6M1 20v-6h6M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15",
+  check: "M20 6L9 17l-5-5",
+  plus: "M12 5v14M5 12h14",
+  trash: "M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2",
+  edit: "M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z",
+  alert: "M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01",
+  settings: "M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3zM19 10v2a7 7 0 0 1-14 0v-2",
+  export: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3",
+  audit: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10zM9 12l2 2 4-4",
+  geotech: "M2 22h20M6 18V4M10 18V8M14 18V6M18 18V10",
+  back: "M19 12H5M12 19l-7-7 7-7",
+  close: "M18 6L6 18M6 6l12 12",
+  search: "M11 17.25a6.25 6.25 0 1 1 0-12.5 6.25 6.25 0 0 1 0 12.5zM16 16l4.5 4.5",
+  photo: "M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8z",
+  cloud: "M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z",
+  user: "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8z",
+  map: "M1 6v16l7-4 8 4 7-4V2l-7 4-8-4-7 4zM8 2v16M16 6v16",
+  clock: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM12 6v6l4 2",
+  chevDown: "M6 9l6 6 6-6",
+  chevRight: "M9 18l6-6-6-6",
+  layers: "M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5",
+  database: "M12 2C6.48 2 2 4.02 2 6.5V17.5C2 19.98 6.48 22 12 22C17.52 22 22 19.98 22 17.5V6.5C22 4.02 17.52 2 12 2zM2 6.5C2 8.98 6.48 11 12 11C17.52 11 22 8.98 22 6.5M2 12C2 14.48 6.48 16.5 12 16.5C17.52 16.5 22 14.48 22 12",
+};
+
+// ─── MAIN APP ───
+function DrillLogPro() {
+  const [darkMode, setDarkMode] = useState(true);
+  const [currentView, setCurrentView] = useState("dashboard");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [syncStatus, setSyncStatus] = useState("offline"); // offline, syncing, synced, error
+  const [lastSyncTime, setLastSyncTime] = useState(null);
+  const [toast, setToast] = useState(null);
+
+  // ─── DATA STATE ───
+  const [projects, setProjects] = useState([
+    { id: "p1", name: "Pilbara Gold", code: "PBG", location: "Pilbara, WA", status: "active", drillMethod: "Diamond Core (DD)", holes: 24, created: "2026-01-15" },
+    { id: "p2", name: "Yilgarn Nickel", code: "YGN", location: "Yilgarn, WA", status: "active", drillMethod: "Reverse Circulation (RC)", holes: 12, created: "2026-02-01" },
+  ]);
+  const [activeProject, setActiveProject] = useState("p1");
+
+  const [drillHoles, setDrillHoles] = useState([
+    { id: "dh1", projectId: "p1", holeId: "PBG-DD-001", collar: { easting: 456789.2, northing: 7123456.8, rl: 345.6, azimuth: 270, dip: -60 }, depth: 156.4, status: "logging", method: "DD", startDate: "2026-02-20" },
+    { id: "dh2", projectId: "p1", holeId: "PBG-DD-002", collar: { easting: 456850.5, northing: 7123500.1, rl: 347.2, azimuth: 270, dip: -55 }, depth: 89.2, status: "drilling", method: "DD", startDate: "2026-02-24" },
+    { id: "dh3", projectId: "p1", holeId: "PBG-DD-003", collar: { easting: 456912.3, northing: 7123544.6, rl: 349.1, azimuth: 270, dip: -60 }, depth: 0, status: "planned", method: "DD", startDate: "2026-03-01" },
+    { id: "dh4", projectId: "p2", holeId: "YGN-RC-001", collar: { easting: 345678.1, northing: 6543210.4, rl: 512.3, azimuth: 180, dip: -90 }, depth: 200, status: "complete", method: "RC", startDate: "2026-01-28" },
+  ]);
+
+  const [geoLogs, setGeoLogs] = useState([
+    { id: "gl1", holeId: "dh1", fromM: 0.0, toM: 12.5, lithology: "SST", alteration: "Slight", weathering: "Moderately (W3)", mineralization: [], structure: "", color: "Yellow-Brown", grainSize: "Medium", notes: "Transported cover. Ferruginous staining throughout.", synced: false, timestamp: "2026-02-20T08:12:00" },
+    { id: "gl2", holeId: "dh1", fromM: 12.5, toM: 34.8, lithology: "GNS", alteration: "Moderate", weathering: "Slightly (W2)", mineralization: ["Pyrite", "Quartz Vein"], structure: "Foliation", color: "Grey-Green", grainSize: "Fine-Medium", notes: "Banded gneiss with 5% disseminated pyrite. Quartz veining at 28.4m, 2cm width.", synced: false, timestamp: "2026-02-20T09:45:00" },
+    { id: "gl3", holeId: "dh1", fromM: 34.8, toM: 67.2, lithology: "BAS", alteration: "Strong", weathering: "Fresh (W1)", mineralization: ["Chalcopyrite", "Magnetite"], structure: "Shear Zone", color: "Dark Green-Black", grainSize: "Fine", notes: "Sheared basalt unit with strong chlorite-sericite alteration. CuPy at 42-45m, 3% visual.", synced: true, timestamp: "2026-02-20T11:30:00" },
+    { id: "gl4", holeId: "dh1", fromM: 67.2, toM: 98.0, lithology: "QTZ", alteration: "Fresh", weathering: "Fresh (W1)", mineralization: ["Gold", "Pyrite"], structure: "Vein", color: "White-Grey", grainSize: "Coarse", notes: "Massive quartz vein zone. VG at 78.3m! Sulphide-rich zones 72-76m and 85-91m.", synced: false, timestamp: "2026-02-21T07:20:00" },
+  ]);
+
+  const [geotechLogs, setGeotechLogs] = useState([
+    { id: "gt1", holeId: "dh1", fromM: 0.0, toM: 12.5, rqd: 15, recovery: 78, hardness: "R2", fracFreq: 18, jrc: 4, ja: 3, notes: "Poor ground. Core loss at 4.5-6.2m.", synced: false },
+    { id: "gt2", holeId: "dh1", fromM: 12.5, toM: 34.8, rqd: 62, recovery: 95, hardness: "R4", fracFreq: 8, jrc: 8, ja: 1, notes: "Fair to good ground. Tight joints.", synced: false },
+    { id: "gt3", holeId: "dh1", fromM: 34.8, toM: 67.2, rqd: 45, recovery: 88, hardness: "R3", fracFreq: 12, jrc: 6, ja: 4, notes: "Shear zone significantly reduces RQD.", synced: true },
+  ]);
+
+  const [samples, setSamples] = useState([
+    { id: "s1", holeId: "dh1", sampleId: "PBG001-042.0-045.0", fromM: 42.0, toM: 45.0, type: "HQ Core", length: 3.0, qcType: null, status: "dispatched", labId: "ALS-PER", dispatchDate: "2026-02-22", synced: true },
+    { id: "s2", holeId: "dh1", sampleId: "PBG001-045.0-046.0", fromM: 45.0, toM: 46.0, type: "HQ Core", length: 1.0, qcType: "Standard", status: "pending", labId: null, dispatchDate: null, synced: false },
+    { id: "s3", holeId: "dh1", sampleId: "PBG001-072.0-076.0", fromM: 72.0, toM: 76.0, type: "HQ Core", length: 4.0, qcType: null, status: "pending", labId: null, dispatchDate: null, synced: false },
+    { id: "s4", holeId: "dh1", sampleId: "PBG001-078.0-079.0", fromM: 78.0, toM: 79.0, type: "HQ Core", length: 1.0, qcType: null, status: "pending", labId: null, dispatchDate: null, synced: false },
+    { id: "s5", holeId: "dh1", sampleId: "PBG001-BLANK-001", fromM: null, toM: null, type: "HQ Core", length: 0, qcType: "Blank", status: "pending", labId: null, dispatchDate: null, synced: false },
+  ]);
+
+  const [plods, setPlods] = useState([
+    { id: "pl1", holeId: "dh1", date: "2026-02-20", shift: "Day Shift", driller: "Mike Johnson", fromM: 0, toM: 42.5, metresDrilled: 42.5, coreSize: "HQ", bitUsed: "Diamond Impreg.", hoursWorked: 12, downtime: 1.5, downtimeReason: "Rod change", waterUsage: 4500, consumables: "2x core barrels, 1x bit", notes: "Good progress. Hit harder ground at 35m.", synced: false },
+    { id: "pl2", holeId: "dh1", date: "2026-02-21", shift: "Day Shift", driller: "Mike Johnson", fromM: 42.5, toM: 98.0, metresDrilled: 55.5, coreSize: "HQ", bitUsed: "Diamond Impreg.", hoursWorked: 12, downtime: 0.5, downtimeReason: "Survey", waterUsage: 5200, consumables: "1x core barrel", notes: "Excellent ground conditions. VG observed at 78.3m.", synced: false },
+    { id: "pl3", holeId: "dh1", date: "2026-02-22", shift: "Night Shift", driller: "Pete Wilson", fromM: 98.0, toM: 156.4, metresDrilled: 58.4, coreSize: "HQ", bitUsed: "Diamond Surface Set", hoursWorked: 12, downtime: 2.0, downtimeReason: "Water supply issue", waterUsage: 6100, consumables: "3x core barrels, 2x bits", notes: "Changed to surface set bit at 120m. End of hole at 156.4m.", synced: true },
+  ]);
+
+  const [surveys, setSurveys] = useState([
+    { id: "sv1", holeId: "dh1", depth: 0, azimuth: 270.0, dip: -60.0, method: "Collar", synced: true },
+    { id: "sv2", holeId: "dh1", depth: 30, azimuth: 269.5, dip: -59.2, method: "Gyro", synced: false },
+    { id: "sv3", holeId: "dh1", depth: 60, azimuth: 268.8, dip: -58.5, method: "Gyro", synced: false },
+    { id: "sv4", holeId: "dh1", depth: 90, azimuth: 268.1, dip: -57.8, method: "Gyro", synced: false },
+    { id: "sv5", holeId: "dh1", depth: 120, azimuth: 267.5, dip: -57.0, method: "Gyro", synced: false },
+    { id: "sv6", holeId: "dh1", depth: 156.4, azimuth: 267.0, dip: -56.2, method: "Gyro", synced: false },
+  ]);
+
+  const [auditLog, setAuditLog] = useState([
+    { id: "a1", action: "CREATE", entity: "GeoLog", entityId: "gl1", user: "karthik", timestamp: "2026-02-20T08:12:00", details: "Created geology log 0.0-12.5m for PBG-DD-001" },
+    { id: "a2", action: "CREATE", entity: "GeoLog", entityId: "gl2", user: "karthik", timestamp: "2026-02-20T09:45:00", details: "Created geology log 12.5-34.8m for PBG-DD-001" },
+    { id: "a3", action: "SYNC", entity: "GeoLog", entityId: "gl3", user: "karthik", timestamp: "2026-02-20T12:00:00", details: "Synced geology log 34.8-67.2m to main database" },
+    { id: "a4", action: "CREATE", entity: "PLOD", entityId: "pl1", user: "karthik", timestamp: "2026-02-20T18:30:00", details: "Created daily drill report for 2026-02-20" },
+    { id: "a5", action: "CREATE", entity: "Sample", entityId: "s1", user: "karthik", timestamp: "2026-02-22T07:00:00", details: "Created sample PBG001-042.0-045.0" },
+    { id: "a6", action: "DISPATCH", entity: "Sample", entityId: "s1", user: "karthik", timestamp: "2026-02-22T10:15:00", details: "Dispatched sample to ALS Perth" },
+    { id: "a7", action: "EDIT", entity: "GeoLog", entityId: "gl2", user: "karthik", timestamp: "2026-02-22T14:20:00", details: "Updated mineralization notes for 12.5-34.8m interval" },
+  ]);
+
+  // ─── DETAIL VIEW STATE ───
+  const [selectedHole, setSelectedHole] = useState(null);
+  const [selectedTab, setSelectedTab] = useState("geology");
+  const [editingItem, setEditingItem] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const [formType, setFormType] = useState(null); // "geolog", "geotech", "sample", "plod", "survey", "hole", "dispatch"
+
+  // ─── HELPER ───
+  const showToast = (msg, type = "success") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const addAudit = (action, entity, entityId, details) => {
+    setAuditLog(prev => [{ id: generateId(), action, entity, entityId, user: "karthik", timestamp: new Date().toISOString(), details }, ...prev]);
+  };
+
+  const projectHoles = drillHoles.filter(h => h.projectId === activeProject);
+  const activeProjectData = projects.find(p => p.id === activeProject);
+
+  const unsyncedCount = [
+    ...geoLogs.filter(l => !l.synced),
+    ...geotechLogs.filter(l => !l.synced),
+    ...samples.filter(s => !s.synced),
+    ...plods.filter(p => !p.synced),
+    ...surveys.filter(s => !s.synced),
+  ].length;
+
+  // ─── SYNC SIMULATION ───
+  const handleSync = () => {
+    setSyncStatus("syncing");
+    showToast("Syncing data to main database...", "info");
+    setTimeout(() => {
+      setGeoLogs(prev => prev.map(l => ({ ...l, synced: true })));
+      setGeotechLogs(prev => prev.map(l => ({ ...l, synced: true })));
+      setSamples(prev => prev.map(s => ({ ...s, synced: true })));
+      setPlods(prev => prev.map(p => ({ ...p, synced: true })));
+      setSurveys(prev => prev.map(s => ({ ...s, synced: true })));
+      setSyncStatus("synced");
+      setLastSyncTime(new Date().toLocaleString());
+      addAudit("SYNC", "ALL", "bulk", `Synced all pending records (${unsyncedCount} items) to main database`);
+      showToast(`Successfully synced ${unsyncedCount} records!`, "success");
+      setTimeout(() => setSyncStatus("offline"), 5000);
+    }, 2500);
+  };
+
+  // ─── THEME ───
+  const t = darkMode
+    ? {
+        bg: "#0B0E14", bgCard: "#121820", bgInput: "#1A2130", bgHover: "#1E2738",
+        border: "#1E2A3A", borderLight: "#2A3A4E",
+        text: "#E8ECF1", textMuted: "#7A8BA3", textDim: "#4A5B70",
+        accent: "#FF6B35", accentDim: "#CC5529", accentBg: "rgba(255,107,53,0.1)",
+        success: "#22C55E", successBg: "rgba(34,197,94,0.1)",
+        warn: "#EAB308", warnBg: "rgba(234,179,8,0.1)",
+        danger: "#EF4444", dangerBg: "rgba(239,68,68,0.1)",
+        info: "#3B82F6", infoBg: "rgba(59,130,246,0.1)",
+        syncPulse: "#FF6B35",
+      }
+    : {
+        bg: "#F5F0EB", bgCard: "#FFFFFF", bgInput: "#F0EDE8", bgHover: "#E8E3DC",
+        border: "#D5CFC6", borderLight: "#E0DAD2",
+        text: "#1A1611", textMuted: "#6B6258", textDim: "#9B9388",
+        accent: "#D4520A", accentDim: "#B84409", accentBg: "rgba(212,82,10,0.08)",
+        success: "#15803D", successBg: "rgba(21,128,61,0.08)",
+        warn: "#A16207", warnBg: "rgba(161,98,7,0.08)",
+        danger: "#DC2626", dangerBg: "rgba(220,38,38,0.08)",
+        info: "#2563EB", infoBg: "rgba(37,99,235,0.08)",
+        syncPulse: "#D4520A",
+      };
+
+  // ─── FORM COMPONENT ───
+  const FormModal = () => {
+    const [formData, setFormData] = useState(() => {
+      if (editingItem) return { ...editingItem };
+      if (formType === "geolog") {
+        const holeLogs = geoLogs.filter(l => l.holeId === selectedHole);
+        const lastTo = holeLogs.length > 0 ? Math.max(...holeLogs.map(l => l.toM)) : 0;
+        return { fromM: lastTo, toM: lastTo + 1, lithology: "", alteration: "", weathering: "", mineralization: [], structure: "", color: "", grainSize: "", notes: "" };
+      }
+      if (formType === "geotech") {
+        const holeLogs = geotechLogs.filter(l => l.holeId === selectedHole);
+        const lastTo = holeLogs.length > 0 ? Math.max(...holeLogs.map(l => l.toM)) : 0;
+        return { fromM: lastTo, toM: lastTo + 1, rqd: 0, recovery: 100, hardness: "R3", fracFreq: 0, jrc: 0, ja: 0, notes: "" };
+      }
+      if (formType === "sample") {
+        const holeSamples = samples.filter(s => s.holeId === selectedHole && s.fromM !== null);
+        const lastTo = holeSamples.length > 0 ? Math.max(...holeSamples.map(s => s.toM)) : 0;
+        const hole = drillHoles.find(h => h.id === selectedHole);
+        const nextNum = samples.filter(s => s.holeId === selectedHole).length + 1;
+        return { fromM: lastTo, toM: lastTo + 1, type: "HQ Core", qcType: null, sampleId: `${hole?.holeId?.replace(/-/g, "")}-${String(nextNum).padStart(3,"0")}`, status: "pending" };
+      }
+      if (formType === "plod") {
+        return { date: new Date().toISOString().split("T")[0], shift: "Day Shift", driller: "", fromM: 0, toM: 0, metresDrilled: 0, coreSize: "HQ", bitUsed: "", hoursWorked: 12, downtime: 0, downtimeReason: "", waterUsage: 0, consumables: "", notes: "" };
+      }
+      if (formType === "survey") {
+        const holeSurveys = surveys.filter(s => s.holeId === selectedHole);
+        const lastDepth = holeSurveys.length > 0 ? Math.max(...holeSurveys.map(s => s.depth)) : 0;
+        return { depth: lastDepth + 30, azimuth: 270, dip: -60, method: "Gyro" };
+      }
+      if (formType === "hole") {
+        const proj = projects.find(p => p.id === activeProject);
+        const nextNum = projectHoles.length + 1;
+        return { holeId: `${proj?.code}-DD-${String(nextNum).padStart(3,"0")}`, collar: { easting: 0, northing: 0, rl: 0, azimuth: 270, dip: -60 }, depth: 0, status: "planned", method: "DD", startDate: new Date().toISOString().split("T")[0] };
+      }
+      if (formType === "dispatch") {
+        return { labId: "", dispatchDate: new Date().toISOString().split("T")[0], notes: "" };
+      }
+      return {};
+    });
+
+    const updateField = (key, val) => setFormData(prev => ({ ...prev, [key]: val }));
+
+    const handleSave = () => {
+      // validation
+      if (formType === "geolog") {
+        if (formData.fromM >= formData.toM) { showToast("'From' must be less than 'To'", "danger"); return; }
+        if (!formData.lithology) { showToast("Please select a lithology", "danger"); return; }
+        if (editingItem) {
+          setGeoLogs(prev => prev.map(l => l.id === editingItem.id ? { ...formData, id: editingItem.id, holeId: selectedHole, synced: false, timestamp: new Date().toISOString() } : l));
+          addAudit("EDIT", "GeoLog", editingItem.id, `Updated geology log ${formData.fromM}-${formData.toM}m`);
+        } else {
+          const newId = generateId();
+          setGeoLogs(prev => [...prev, { ...formData, id: newId, holeId: selectedHole, synced: false, timestamp: new Date().toISOString() }]);
+          addAudit("CREATE", "GeoLog", newId, `Created geology log ${formData.fromM}-${formData.toM}m`);
+        }
+      }
+      if (formType === "geotech") {
+        if (formData.fromM >= formData.toM) { showToast("'From' must be less than 'To'", "danger"); return; }
+        if (editingItem) {
+          setGeotechLogs(prev => prev.map(l => l.id === editingItem.id ? { ...formData, id: editingItem.id, holeId: selectedHole, synced: false } : l));
+          addAudit("EDIT", "GeotechLog", editingItem.id, `Updated geotech log ${formData.fromM}-${formData.toM}m`);
+        } else {
+          const newId = generateId();
+          setGeotechLogs(prev => [...prev, { ...formData, id: newId, holeId: selectedHole, synced: false }]);
+          addAudit("CREATE", "GeotechLog", newId, `Created geotech log ${formData.fromM}-${formData.toM}m`);
+        }
+      }
+      if (formType === "sample") {
+        if (editingItem) {
+          setSamples(prev => prev.map(s => s.id === editingItem.id ? { ...formData, id: editingItem.id, holeId: selectedHole, synced: false } : s));
+          addAudit("EDIT", "Sample", editingItem.id, `Updated sample ${formData.sampleId}`);
+        } else {
+          const newId = generateId();
+          setSamples(prev => [...prev, { ...formData, id: newId, holeId: selectedHole, synced: false, labId: null, dispatchDate: null }]);
+          addAudit("CREATE", "Sample", newId, `Created sample ${formData.sampleId}`);
+        }
+      }
+      if (formType === "plod") {
+        formData.metresDrilled = formData.toM - formData.fromM;
+        if (editingItem) {
+          setPlods(prev => prev.map(p => p.id === editingItem.id ? { ...formData, id: editingItem.id, holeId: selectedHole, synced: false } : p));
+          addAudit("EDIT", "PLOD", editingItem.id, `Updated DDR for ${formData.date}`);
+        } else {
+          const newId = generateId();
+          setPlods(prev => [...prev, { ...formData, id: newId, holeId: selectedHole, synced: false }]);
+          addAudit("CREATE", "PLOD", newId, `Created DDR for ${formData.date}`);
+        }
+      }
+      if (formType === "survey") {
+        const newId = generateId();
+        setSurveys(prev => [...prev, { ...formData, id: newId, holeId: selectedHole, synced: false }]);
+        addAudit("CREATE", "Survey", newId, `Added survey at ${formData.depth}m`);
+      }
+      if (formType === "hole") {
+        const newId = generateId();
+        setDrillHoles(prev => [...prev, { ...formData, id: newId, projectId: activeProject }]);
+        addAudit("CREATE", "DrillHole", newId, `Created drill hole ${formData.holeId}`);
+      }
+      if (formType === "dispatch") {
+        const pendingSamples = samples.filter(s => s.holeId === selectedHole && s.status === "pending");
+        setSamples(prev => prev.map(s => {
+          if (s.holeId === selectedHole && s.status === "pending") {
+            return { ...s, status: "dispatched", labId: formData.labId, dispatchDate: formData.dispatchDate, synced: false };
+          }
+          return s;
+        }));
+        addAudit("DISPATCH", "Sample", "batch", `Dispatched ${pendingSamples.length} samples to ${formData.labId}`);
+        showToast(`Dispatched ${pendingSamples.length} samples to ${formData.labId}`, "success");
+      }
+
+      showToast(editingItem ? "Record updated!" : "Record created!", "success");
+      setShowForm(false);
+      setEditingItem(null);
+    };
+
+    const InputField = ({ label, value, onChange, type = "text", placeholder = "", required = false }) => (
+      <div style={{ marginBottom: 14 }}>
+        <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: t.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+          {label} {required && <span style={{ color: t.danger }}>*</span>}
+        </label>
+        <input
+          type={type} value={value} onChange={e => onChange(type === "number" ? parseFloat(e.target.value) || 0 : e.target.value)} placeholder={placeholder}
+          style={{ width: "100%", padding: "10px 12px", background: t.bgInput, border: `1px solid ${t.border}`, borderRadius: 8, color: t.text, fontSize: 14, outline: "none", boxSizing: "border-box" }}
+        />
+      </div>
+    );
+
+    const SelectField = ({ label, value, onChange, options, required = false }) => (
+      <div style={{ marginBottom: 14 }}>
+        <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: t.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+          {label} {required && <span style={{ color: t.danger }}>*</span>}
+        </label>
+        <select
+          value={value} onChange={e => onChange(e.target.value)}
+          style={{ width: "100%", padding: "10px 12px", background: t.bgInput, border: `1px solid ${t.border}`, borderRadius: 8, color: t.text, fontSize: 14, outline: "none", boxSizing: "border-box" }}
+        >
+          <option value="">Select...</option>
+          {options.map(o => <option key={typeof o === "string" ? o : o.code} value={typeof o === "string" ? o : o.code}>{typeof o === "string" ? o : `${o.code} - ${o.name}`}</option>)}
+        </select>
+      </div>
+    );
+
+    const TextAreaField = ({ label, value, onChange, rows = 3 }) => (
+      <div style={{ marginBottom: 14 }}>
+        <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: t.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</label>
+        <textarea
+          value={value} onChange={e => onChange(e.target.value)} rows={rows}
+          style={{ width: "100%", padding: "10px 12px", background: t.bgInput, border: `1px solid ${t.border}`, borderRadius: 8, color: t.text, fontSize: 14, outline: "none", resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }}
+        />
+      </div>
+    );
+
+    const MultiSelect = ({ label, options, selected, onChange }) => (
+      <div style={{ marginBottom: 14 }}>
+        <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: t.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</label>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {options.map(o => {
+            const isSelected = selected.includes(o);
+            return (
+              <button key={o} onClick={() => onChange(isSelected ? selected.filter(s => s !== o) : [...selected, o])}
+                style={{ padding: "6px 12px", borderRadius: 16, border: `1px solid ${isSelected ? t.accent : t.border}`, background: isSelected ? t.accentBg : "transparent", color: isSelected ? t.accent : t.textMuted, fontSize: 12, cursor: "pointer", fontWeight: isSelected ? 600 : 400 }}>
+                {o}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+
+    return (
+      <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", flexDirection: "column", background: t.bg }}>
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", padding: "12px 16px", borderBottom: `1px solid ${t.border}`, background: t.bgCard }}>
+          <button onClick={() => { setShowForm(false); setEditingItem(null); }} style={{ background: "none", border: "none", color: t.textMuted, cursor: "pointer", padding: 4 }}>
+            <Icon d={Icons.close} size={22} />
+          </button>
+          <h3 style={{ flex: 1, margin: 0, paddingLeft: 12, color: t.text, fontSize: 17, fontWeight: 700 }}>
+            {editingItem ? "Edit" : "New"} {formType === "geolog" ? "Geology Log" : formType === "geotech" ? "Geotech Log" : formType === "sample" ? "Sample" : formType === "plod" ? "Daily Drill Report" : formType === "survey" ? "Downhole Survey" : formType === "hole" ? "Drill Hole" : "Dispatch"}
+          </h3>
+          <button onClick={handleSave} style={{ padding: "8px 20px", borderRadius: 8, border: "none", background: t.accent, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+            Save
+          </button>
+        </div>
+
+        {/* Form Body */}
+        <div style={{ flex: 1, overflow: "auto", padding: 16 }}>
+          {formType === "geolog" && (<>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <InputField label="From (m)" value={formData.fromM} onChange={v => updateField("fromM", v)} type="number" required />
+              <InputField label="To (m)" value={formData.toM} onChange={v => updateField("toM", v)} type="number" required />
+            </div>
+            <SelectField label="Lithology" value={formData.lithology} onChange={v => updateField("lithology", v)} options={LITHOLOGY_CODES} required />
+            {formData.lithology && (
+              <div style={{ marginBottom: 14, padding: 10, borderRadius: 8, background: t.bgInput, display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ width: 28, height: 28, borderRadius: 6, background: LITHOLOGY_CODES.find(l => l.code === formData.lithology)?.color || "#888", border: `1px solid ${t.border}` }} />
+                <span style={{ color: t.text, fontSize: 13, fontWeight: 600 }}>{LITHOLOGY_CODES.find(l => l.code === formData.lithology)?.name}</span>
+                <span style={{ color: t.textMuted, fontSize: 12, marginLeft: "auto" }}>{LITHOLOGY_CODES.find(l => l.code === formData.lithology)?.group}</span>
+              </div>
+            )}
+            <SelectField label="Alteration" value={formData.alteration} onChange={v => updateField("alteration", v)} options={ALTERATION_TYPES} />
+            <SelectField label="Weathering" value={formData.weathering} onChange={v => updateField("weathering", v)} options={WEATHERING} />
+            <MultiSelect label="Mineralization" options={MINERALIZATION} selected={formData.mineralization} onChange={v => updateField("mineralization", v)} />
+            <SelectField label="Structure" value={formData.structure} onChange={v => updateField("structure", v)} options={STRUCTURE_TYPES} />
+            <InputField label="Colour" value={formData.color} onChange={v => updateField("color", v)} placeholder="e.g., Grey-Green" />
+            <InputField label="Grain Size" value={formData.grainSize} onChange={v => updateField("grainSize", v)} placeholder="e.g., Fine-Medium" />
+            <TextAreaField label="Notes / Description" value={formData.notes} onChange={v => updateField("notes", v)} rows={4} />
+          </>)}
+
+          {formType === "geotech" && (<>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <InputField label="From (m)" value={formData.fromM} onChange={v => updateField("fromM", v)} type="number" required />
+              <InputField label="To (m)" value={formData.toM} onChange={v => updateField("toM", v)} type="number" required />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <InputField label="RQD (%)" value={formData.rqd} onChange={v => updateField("rqd", v)} type="number" />
+              <InputField label="Recovery (%)" value={formData.recovery} onChange={v => updateField("recovery", v)} type="number" />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+              <InputField label="Hardness" value={formData.hardness} onChange={v => updateField("hardness", v)} placeholder="R1-R6" />
+              <InputField label="Frac. Freq" value={formData.fracFreq} onChange={v => updateField("fracFreq", v)} type="number" />
+              <InputField label="JRC" value={formData.jrc} onChange={v => updateField("jrc", v)} type="number" />
+            </div>
+            <InputField label="Joint Alteration (Ja)" value={formData.ja} onChange={v => updateField("ja", v)} type="number" />
+            <TextAreaField label="Notes" value={formData.notes} onChange={v => updateField("notes", v)} />
+          </>)}
+
+          {formType === "sample" && (<>
+            <InputField label="Sample ID" value={formData.sampleId} onChange={v => updateField("sampleId", v)} required />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <InputField label="From (m)" value={formData.fromM} onChange={v => updateField("fromM", v)} type="number" />
+              <InputField label="To (m)" value={formData.toM} onChange={v => updateField("toM", v)} type="number" />
+            </div>
+            <SelectField label="Sample Type" value={formData.type} onChange={v => updateField("type", v)} options={SAMPLE_TYPES} />
+            <SelectField label="QC Type" value={formData.qcType || ""} onChange={v => updateField("qcType", v || null)} options={["", ...QC_TYPES]} />
+          </>)}
+
+          {formType === "plod" && (<>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <InputField label="Date" value={formData.date} onChange={v => updateField("date", v)} type="date" required />
+              <SelectField label="Shift" value={formData.shift} onChange={v => updateField("shift", v)} options={SHIFT_TYPES} />
+            </div>
+            <InputField label="Driller Name" value={formData.driller} onChange={v => updateField("driller", v)} required />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+              <InputField label="From (m)" value={formData.fromM} onChange={v => updateField("fromM", v)} type="number" />
+              <InputField label="To (m)" value={formData.toM} onChange={v => updateField("toM", v)} type="number" />
+              <InputField label="Core Size" value={formData.coreSize} onChange={v => updateField("coreSize", v)} />
+            </div>
+            <InputField label="Bit Used" value={formData.bitUsed} onChange={v => updateField("bitUsed", v)} />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <InputField label="Hours Worked" value={formData.hoursWorked} onChange={v => updateField("hoursWorked", v)} type="number" />
+              <InputField label="Downtime (hrs)" value={formData.downtime} onChange={v => updateField("downtime", v)} type="number" />
+            </div>
+            <InputField label="Downtime Reason" value={formData.downtimeReason} onChange={v => updateField("downtimeReason", v)} />
+            <InputField label="Water Usage (L)" value={formData.waterUsage} onChange={v => updateField("waterUsage", v)} type="number" />
+            <InputField label="Consumables" value={formData.consumables} onChange={v => updateField("consumables", v)} />
+            <TextAreaField label="Notes" value={formData.notes} onChange={v => updateField("notes", v)} rows={3} />
+          </>)}
+
+          {formType === "survey" && (<>
+            <InputField label="Depth (m)" value={formData.depth} onChange={v => updateField("depth", v)} type="number" required />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <InputField label="Azimuth (°)" value={formData.azimuth} onChange={v => updateField("azimuth", v)} type="number" required />
+              <InputField label="Dip (°)" value={formData.dip} onChange={v => updateField("dip", v)} type="number" required />
+            </div>
+            <SelectField label="Survey Method" value={formData.method} onChange={v => updateField("method", v)} options={["Collar", "Gyro", "EMS", "North Seeking Gyro", "Reflex"]} />
+          </>)}
+
+          {formType === "hole" && (<>
+            <InputField label="Hole ID" value={formData.holeId} onChange={v => updateField("holeId", v)} required />
+            <SelectField label="Drill Method" value={formData.method} onChange={v => updateField("method", v)} options={["DD", "RC", "AC", "RAB"]} />
+            <SelectField label="Status" value={formData.status} onChange={v => updateField("status", v)} options={["planned", "drilling", "logging", "complete"]} />
+            <InputField label="Start Date" value={formData.startDate} onChange={v => updateField("startDate", v)} type="date" />
+            <div style={{ padding: "8px 0", marginBottom: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: t.accent, textTransform: "uppercase", letterSpacing: "0.05em" }}>Collar Coordinates</span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <InputField label="Easting" value={formData.collar?.easting} onChange={v => updateField("collar", { ...formData.collar, easting: v })} type="number" />
+              <InputField label="Northing" value={formData.collar?.northing} onChange={v => updateField("collar", { ...formData.collar, northing: v })} type="number" />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+              <InputField label="RL" value={formData.collar?.rl} onChange={v => updateField("collar", { ...formData.collar, rl: v })} type="number" />
+              <InputField label="Azimuth" value={formData.collar?.azimuth} onChange={v => updateField("collar", { ...formData.collar, azimuth: v })} type="number" />
+              <InputField label="Dip" value={formData.collar?.dip} onChange={v => updateField("collar", { ...formData.collar, dip: v })} type="number" />
+            </div>
+          </>)}
+
+          {formType === "dispatch" && (<>
+            <InputField label="Lab ID" value={formData.labId} onChange={v => updateField("labId", v)} placeholder="e.g., ALS-PER, SGS-PER" required />
+            <InputField label="Dispatch Date" value={formData.dispatchDate} onChange={v => updateField("dispatchDate", v)} type="date" required />
+            <div style={{ padding: 14, borderRadius: 10, background: t.warnBg, border: `1px solid ${t.warn}30`, marginBottom: 14 }}>
+              <span style={{ color: t.warn, fontSize: 13, fontWeight: 600 }}>
+                {samples.filter(s => s.holeId === selectedHole && s.status === "pending").length} pending samples will be dispatched
+              </span>
+            </div>
+            <TextAreaField label="Dispatch Notes" value={formData.notes} onChange={v => updateField("notes", v)} />
+          </>)}
+        </div>
+      </div>
+    );
+  };
+
+  // ─── STRIP LOG VISUALIZATION ───
+  const StripLog = ({ logs }) => {
+    if (!logs || logs.length === 0) return null;
+    const maxDepth = Math.max(...logs.map(l => l.toM));
+    const scale = 400 / maxDepth;
+    return (
+      <div style={{ display: "flex", gap: 2, overflow: "hidden", borderRadius: 8, border: `1px solid ${t.border}`, height: 400, position: "relative" }}>
+        {/* Depth scale */}
+        <div style={{ width: 40, position: "relative", background: t.bgInput, flexShrink: 0 }}>
+          {logs.map(l => (
+            <div key={l.id} style={{ position: "absolute", top: l.fromM * scale, right: 4, fontSize: 9, color: t.textDim }}>{l.fromM}m</div>
+          ))}
+          <div style={{ position: "absolute", bottom: 2, right: 4, fontSize: 9, color: t.textDim }}>{maxDepth}m</div>
+        </div>
+        {/* Lithology column */}
+        <div style={{ width: 30, position: "relative", flexShrink: 0 }}>
+          {logs.map(l => {
+            const lith = LITHOLOGY_CODES.find(c => c.code === l.lithology);
+            return (
+              <div key={l.id} style={{
+                position: "absolute", top: l.fromM * scale, height: (l.toM - l.fromM) * scale, width: "100%",
+                background: lith?.color || "#666", borderBottom: `1px solid ${t.border}`,
+              }} />
+            );
+          })}
+        </div>
+        {/* Description */}
+        <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
+          {logs.map(l => {
+            const lith = LITHOLOGY_CODES.find(c => c.code === l.lithology);
+            return (
+              <div key={l.id} style={{
+                position: "absolute", top: l.fromM * scale, height: Math.max((l.toM - l.fromM) * scale - 1, 16), width: "100%",
+                padding: "2px 6px", overflow: "hidden",
+                borderBottom: `1px solid ${t.border}`,
+              }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: t.text }}>{lith?.code}</span>
+                {l.mineralization?.length > 0 && <span style={{ fontSize: 9, color: t.warn, marginLeft: 4 }}>{l.mineralization.join(", ")}</span>}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  // ─── DASHBOARD VIEW ───
+  const DashboardView = () => {
+    const totalMetres = plods.filter(p => projectHoles.some(h => h.id === p.holeId)).reduce((a, p) => a + p.metresDrilled, 0);
+    const totalSamples = samples.filter(s => projectHoles.some(h => h.id === s.holeId)).length;
+    const dispatched = samples.filter(s => projectHoles.some(h => h.id === s.holeId) && s.status === "dispatched").length;
+
+    return (
+      <div style={{ padding: 16 }}>
+        {/* Project Selector */}
+        <div style={{ marginBottom: 20 }}>
+          <select value={activeProject} onChange={e => setActiveProject(e.target.value)}
+            style={{ width: "100%", padding: "12px 14px", background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 10, color: t.text, fontSize: 15, fontWeight: 700, outline: "none" }}>
+            {projects.map(p => <option key={p.id} value={p.id}>{p.name} ({p.code})</option>)}
+          </select>
+        </div>
+
+        {/* Stat Cards */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 20 }}>
+          {[
+            { label: "Drill Holes", value: projectHoles.length, color: t.accent, icon: Icons.drill },
+            { label: "Total Metres", value: `${totalMetres.toFixed(1)}m`, color: t.info, icon: Icons.layers },
+            { label: "Samples", value: totalSamples, color: t.success, icon: Icons.sample },
+            { label: "Unsynced", value: unsyncedCount, color: unsyncedCount > 0 ? t.warn : t.success, icon: Icons.sync },
+          ].map((s, i) => (
+            <div key={i} style={{ padding: 16, borderRadius: 12, background: t.bgCard, border: `1px solid ${t.border}` }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <Icon d={s.icon} size={18} color={s.color} />
+                <span style={{ fontSize: 10, color: t.textMuted, textTransform: "uppercase", letterSpacing: "0.05em" }}>{s.label}</span>
+              </div>
+              <div style={{ fontSize: 24, fontWeight: 800, color: s.color }}>{s.value}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Sync Button */}
+        <button onClick={handleSync} disabled={syncStatus === "syncing" || unsyncedCount === 0}
+          style={{
+            width: "100%", padding: 16, borderRadius: 12, border: "none", cursor: unsyncedCount > 0 ? "pointer" : "default",
+            background: syncStatus === "syncing" ? t.warnBg : unsyncedCount > 0 ? `linear-gradient(135deg, ${t.accent}, ${t.accentDim})` : t.bgCard,
+            color: unsyncedCount > 0 ? "#fff" : t.textMuted, fontSize: 15, fontWeight: 700,
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 20,
+            opacity: unsyncedCount === 0 ? 0.5 : 1,
+          }}>
+          <Icon d={Icons.sync} size={20} color={unsyncedCount > 0 ? "#fff" : t.textMuted} style={syncStatus === "syncing" ? { animation: "spin 1s linear infinite" } : {}} />
+          {syncStatus === "syncing" ? "Syncing..." : syncStatus === "synced" ? "All Synced!" : unsyncedCount > 0 ? `Sync ${unsyncedCount} Records to Database` : "All Records Synced"}
+        </button>
+
+        {lastSyncTime && (
+          <div style={{ textAlign: "center", fontSize: 11, color: t.textDim, marginBottom: 16, marginTop: -12 }}>
+            Last sync: {lastSyncTime}
+          </div>
+        )}
+
+        {/* Drill Holes List */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <h3 style={{ margin: 0, color: t.text, fontSize: 16, fontWeight: 700 }}>Drill Holes</h3>
+          <button onClick={() => { setFormType("hole"); setShowForm(true); }}
+            style={{ padding: "6px 14px", borderRadius: 8, border: `1px solid ${t.accent}`, background: t.accentBg, color: t.accent, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+            <Icon d={Icons.plus} size={14} color={t.accent} /> New Hole
+          </button>
+        </div>
+
+        {projectHoles.map(hole => {
+          const holeLogs = geoLogs.filter(l => l.holeId === hole.id);
+          const holeSamples = samples.filter(s => s.holeId === hole.id);
+          const statusColors = { planned: t.textDim, drilling: t.info, logging: t.warn, complete: t.success };
+          return (
+            <button key={hole.id} onClick={() => { setSelectedHole(hole.id); setCurrentView("holeDetail"); setSelectedTab("geology"); }}
+              style={{
+                width: "100%", padding: 14, borderRadius: 12, background: t.bgCard, border: `1px solid ${t.border}`,
+                marginBottom: 8, cursor: "pointer", textAlign: "left", display: "block",
+              }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <span style={{ fontSize: 15, fontWeight: 700, color: t.text }}>{hole.holeId}</span>
+                <span style={{ padding: "3px 10px", borderRadius: 12, fontSize: 10, fontWeight: 700, textTransform: "uppercase", background: `${statusColors[hole.status]}18`, color: statusColors[hole.status] }}>
+                  {hole.status}
+                </span>
+              </div>
+              <div style={{ display: "flex", gap: 16, fontSize: 12, color: t.textMuted }}>
+                <span>{hole.method} • {hole.depth}m</span>
+                <span>{holeLogs.length} logs</span>
+                <span>{holeSamples.length} samples</span>
+              </div>
+              <div style={{ fontSize: 11, color: t.textDim, marginTop: 4 }}>
+                E: {hole.collar.easting.toFixed(1)} N: {hole.collar.northing.toFixed(1)} RL: {hole.collar.rl.toFixed(1)}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // ─── HOLE DETAIL VIEW ───
+  const HoleDetailView = () => {
+    const hole = drillHoles.find(h => h.id === selectedHole);
+    if (!hole) return null;
+    const holeLogs = geoLogs.filter(l => l.holeId === selectedHole).sort((a, b) => a.fromM - b.fromM);
+    const holeGeotech = geotechLogs.filter(l => l.holeId === selectedHole).sort((a, b) => a.fromM - b.fromM);
+    const holeSamples = samples.filter(s => s.holeId === selectedHole);
+    const holePlods = plods.filter(p => p.holeId === selectedHole).sort((a, b) => a.date.localeCompare(b.date));
+    const holeSurveys = surveys.filter(s => s.holeId === selectedHole).sort((a, b) => a.depth - b.depth);
+
+    const tabs = [
+      { key: "geology", label: "Geology", icon: Icons.layers, count: holeLogs.length },
+      { key: "geotech", label: "Geotech", icon: Icons.geotech, count: holeGeotech.length },
+      { key: "samples", label: "Samples", icon: Icons.sample, count: holeSamples.length },
+      { key: "plod", label: "DDR/PLOD", icon: Icons.drill, count: holePlods.length },
+      { key: "survey", label: "Surveys", icon: Icons.map, count: holeSurveys.length },
+      { key: "striplog", label: "Strip Log", icon: Icons.log, count: null },
+    ];
+
+    return (
+      <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+        {/* Header */}
+        <div style={{ padding: "12px 16px", borderBottom: `1px solid ${t.border}`, background: t.bgCard }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+            <button onClick={() => setCurrentView("dashboard")} style={{ background: "none", border: "none", color: t.textMuted, cursor: "pointer", padding: 2 }}>
+              <Icon d={Icons.back} size={20} />
+            </button>
+            <div>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: t.text }}>{hole.holeId}</h2>
+              <span style={{ fontSize: 11, color: t.textMuted }}>{hole.method} • Az: {hole.collar.azimuth}° • Dip: {hole.collar.dip}° • Depth: {hole.depth}m</span>
+            </div>
+          </div>
+          {/* Tabs - scrollable */}
+          <div style={{ display: "flex", gap: 4, overflowX: "auto", paddingBottom: 4, WebkitOverflowScrolling: "touch" }}>
+            {tabs.map(tab => (
+              <button key={tab.key} onClick={() => setSelectedTab(tab.key)}
+                style={{
+                  padding: "7px 12px", borderRadius: 8, border: "none", cursor: "pointer", whiteSpace: "nowrap",
+                  background: selectedTab === tab.key ? t.accentBg : "transparent",
+                  color: selectedTab === tab.key ? t.accent : t.textMuted,
+                  fontSize: 12, fontWeight: selectedTab === tab.key ? 700 : 500,
+                  display: "flex", alignItems: "center", gap: 4,
+                }}>
+                {tab.label}
+                {tab.count !== null && <span style={{ fontSize: 10, opacity: 0.7 }}>({tab.count})</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Tab Content */}
+        <div style={{ flex: 1, overflow: "auto", padding: 16 }}>
+
+          {/* ──── GEOLOGY TAB ──── */}
+          {selectedTab === "geology" && (<>
+            <button onClick={() => { setFormType("geolog"); setEditingItem(null); setShowForm(true); }}
+              style={{ width: "100%", padding: 12, borderRadius: 10, border: `2px dashed ${t.border}`, background: "transparent", color: t.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+              <Icon d={Icons.plus} size={16} color={t.accent} /> Add Geology Interval
+            </button>
+            {holeLogs.map(log => {
+              const lith = LITHOLOGY_CODES.find(l => l.code === log.lithology);
+              return (
+                <div key={log.id} style={{ padding: 14, borderRadius: 12, background: t.bgCard, border: `1px solid ${t.border}`, marginBottom: 8, position: "relative" }}>
+                  {!log.synced && <div style={{ position: "absolute", top: 8, right: 8, width: 8, height: 8, borderRadius: 4, background: t.warn }} />}
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                    <div style={{ width: 36, height: 36, borderRadius: 8, background: lith?.color || "#666", border: `1px solid ${t.border}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <span style={{ fontSize: 10, fontWeight: 800, color: "#000", mixBlendMode: "difference" }}>{log.lithology}</span>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: t.text }}>{log.fromM}m – {log.toM}m</div>
+                      <div style={{ fontSize: 12, color: t.textMuted }}>{lith?.name} • {log.alteration} alt. • {log.weathering}</div>
+                    </div>
+                    <button onClick={() => { setEditingItem(log); setFormType("geolog"); setShowForm(true); }}
+                      style={{ background: "none", border: "none", padding: 6, cursor: "pointer" }}>
+                      <Icon d={Icons.edit} size={16} color={t.textMuted} />
+                    </button>
+                  </div>
+                  {log.mineralization?.length > 0 && (
+                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 6 }}>
+                      {log.mineralization.map(m => (
+                        <span key={m} style={{ padding: "2px 8px", borderRadius: 10, background: t.warnBg, color: t.warn, fontSize: 10, fontWeight: 600 }}>{m}</span>
+                      ))}
+                    </div>
+                  )}
+                  {log.structure && <div style={{ fontSize: 11, color: t.info, marginBottom: 4 }}>Structure: {log.structure}</div>}
+                  {log.notes && <div style={{ fontSize: 12, color: t.textMuted, lineHeight: 1.4, marginTop: 4, padding: 8, borderRadius: 6, background: t.bgInput }}>{log.notes}</div>}
+                </div>
+              );
+            })}
+          </>)}
+
+          {/* ──── GEOTECH TAB ──── */}
+          {selectedTab === "geotech" && (<>
+            <button onClick={() => { setFormType("geotech"); setEditingItem(null); setShowForm(true); }}
+              style={{ width: "100%", padding: 12, borderRadius: 10, border: `2px dashed ${t.border}`, background: "transparent", color: t.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+              <Icon d={Icons.plus} size={16} color={t.accent} /> Add Geotech Interval
+            </button>
+            {holeGeotech.map(gt => {
+              const rqdColor = gt.rqd >= 75 ? t.success : gt.rqd >= 50 ? t.warn : t.danger;
+              return (
+                <div key={gt.id} style={{ padding: 14, borderRadius: 12, background: t.bgCard, border: `1px solid ${t.border}`, marginBottom: 8, position: "relative" }}>
+                  {!gt.synced && <div style={{ position: "absolute", top: 8, right: 8, width: 8, height: 8, borderRadius: 4, background: t.warn }} />}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: t.text }}>{gt.fromM}m – {gt.toM}m</span>
+                    <button onClick={() => { setEditingItem(gt); setFormType("geotech"); setShowForm(true); }}
+                      style={{ background: "none", border: "none", padding: 6, cursor: "pointer" }}>
+                      <Icon d={Icons.edit} size={16} color={t.textMuted} />
+                    </button>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8 }}>
+                    {[
+                      { label: "RQD", value: `${gt.rqd}%`, color: rqdColor },
+                      { label: "Recovery", value: `${gt.recovery}%`, color: gt.recovery >= 90 ? t.success : t.warn },
+                      { label: "Hardness", value: gt.hardness, color: t.text },
+                      { label: "Frac Freq", value: gt.fracFreq, color: t.text },
+                    ].map((item, i) => (
+                      <div key={i} style={{ textAlign: "center", padding: 8, borderRadius: 8, background: t.bgInput }}>
+                        <div style={{ fontSize: 9, color: t.textDim, textTransform: "uppercase", marginBottom: 2 }}>{item.label}</div>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: item.color }}>{item.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {/* RQD Bar */}
+                  <div style={{ marginTop: 8, height: 6, borderRadius: 3, background: t.bgInput, overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${gt.rqd}%`, borderRadius: 3, background: rqdColor, transition: "width 0.3s" }} />
+                  </div>
+                  {gt.notes && <div style={{ fontSize: 12, color: t.textMuted, marginTop: 8 }}>{gt.notes}</div>}
+                </div>
+              );
+            })}
+          </>)}
+
+          {/* ──── SAMPLES TAB ──── */}
+          {selectedTab === "samples" && (<>
+            <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+              <button onClick={() => { setFormType("sample"); setEditingItem(null); setShowForm(true); }}
+                style={{ flex: 1, padding: 12, borderRadius: 10, border: `2px dashed ${t.border}`, background: "transparent", color: t.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                <Icon d={Icons.plus} size={16} color={t.accent} /> Add Sample
+              </button>
+              {holeSamples.some(s => s.status === "pending") && (
+                <button onClick={() => { setFormType("dispatch"); setShowForm(true); }}
+                  style={{ padding: "12px 16px", borderRadius: 10, border: "none", background: t.info, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+                  <Icon d={Icons.export} size={16} color="#fff" /> Dispatch
+                </button>
+              )}
+            </div>
+            {holeSamples.map(s => (
+              <div key={s.id} style={{ padding: 14, borderRadius: 12, background: t.bgCard, border: `1px solid ${t.border}`, marginBottom: 8, display: "flex", alignItems: "center", gap: 12, position: "relative" }}>
+                {!s.synced && <div style={{ position: "absolute", top: 8, right: 8, width: 8, height: 8, borderRadius: 4, background: t.warn }} />}
+                <div style={{
+                  width: 40, height: 40, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                  background: s.qcType ? t.infoBg : s.status === "dispatched" ? t.successBg : t.bgInput,
+                }}>
+                  <Icon d={Icons.sample} size={18} color={s.qcType ? t.info : s.status === "dispatched" ? t.success : t.textMuted} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.sampleId}</div>
+                  <div style={{ fontSize: 11, color: t.textMuted }}>
+                    {s.fromM !== null ? `${s.fromM}-${s.toM}m` : "QC"} • {s.type}
+                    {s.qcType && <span style={{ color: t.info, fontWeight: 600 }}> • {s.qcType}</span>}
+                  </div>
+                </div>
+                <span style={{
+                  padding: "3px 10px", borderRadius: 10, fontSize: 10, fontWeight: 700, textTransform: "uppercase",
+                  background: s.status === "dispatched" ? t.successBg : t.warnBg,
+                  color: s.status === "dispatched" ? t.success : t.warn,
+                }}>{s.status}</span>
+              </div>
+            ))}
+          </>)}
+
+          {/* ──── PLOD/DDR TAB ──── */}
+          {selectedTab === "plod" && (<>
+            <button onClick={() => { setFormType("plod"); setEditingItem(null); setShowForm(true); }}
+              style={{ width: "100%", padding: 12, borderRadius: 10, border: `2px dashed ${t.border}`, background: "transparent", color: t.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+              <Icon d={Icons.plus} size={16} color={t.accent} /> Add Daily Drill Report
+            </button>
+            {holePlods.map(pl => (
+              <div key={pl.id} style={{ padding: 14, borderRadius: 12, background: t.bgCard, border: `1px solid ${t.border}`, marginBottom: 8, position: "relative" }}>
+                {!pl.synced && <div style={{ position: "absolute", top: 8, right: 8, width: 8, height: 8, borderRadius: 4, background: t.warn }} />}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: t.text }}>{pl.date}</div>
+                    <div style={{ fontSize: 11, color: t.textMuted }}>{pl.shift} • {pl.driller}</div>
+                  </div>
+                  <button onClick={() => { setEditingItem(pl); setFormType("plod"); setShowForm(true); }}
+                    style={{ background: "none", border: "none", padding: 6, cursor: "pointer" }}>
+                    <Icon d={Icons.edit} size={16} color={t.textMuted} />
+                  </button>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
+                  {[
+                    { label: "Metres Drilled", value: `${pl.metresDrilled}m` },
+                    { label: "Interval", value: `${pl.fromM}-${pl.toM}m` },
+                    { label: "Core Size", value: pl.coreSize },
+                  ].map((item, i) => (
+                    <div key={i} style={{ textAlign: "center", padding: 8, borderRadius: 8, background: t.bgInput }}>
+                      <div style={{ fontSize: 9, color: t.textDim, textTransform: "uppercase", marginBottom: 2 }}>{item.label}</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: t.text }}>{item.value}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                  {[
+                    { label: "Hours", value: pl.hoursWorked },
+                    { label: "Downtime", value: `${pl.downtime}h` },
+                    { label: "Water (L)", value: pl.waterUsage },
+                  ].map((item, i) => (
+                    <div key={i} style={{ textAlign: "center", padding: 6, borderRadius: 6, background: t.bgInput }}>
+                      <div style={{ fontSize: 9, color: t.textDim, textTransform: "uppercase", marginBottom: 2 }}>{item.label}</div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: t.textMuted }}>{item.value}</div>
+                    </div>
+                  ))}
+                </div>
+                {pl.notes && <div style={{ fontSize: 12, color: t.textMuted, marginTop: 8, padding: 8, borderRadius: 6, background: t.bgInput }}>{pl.notes}</div>}
+              </div>
+            ))}
+          </>)}
+
+          {/* ──── SURVEYS TAB ──── */}
+          {selectedTab === "survey" && (<>
+            <button onClick={() => { setFormType("survey"); setShowForm(true); }}
+              style={{ width: "100%", padding: 12, borderRadius: 10, border: `2px dashed ${t.border}`, background: "transparent", color: t.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+              <Icon d={Icons.plus} size={16} color={t.accent} /> Add Survey Reading
+            </button>
+            {/* Survey Table */}
+            <div style={{ borderRadius: 12, border: `1px solid ${t.border}`, overflow: "hidden" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", background: t.bgInput, padding: "10px 12px" }}>
+                {["Depth (m)", "Azimuth (°)", "Dip (°)", "Method"].map(h => (
+                  <span key={h} style={{ fontSize: 10, fontWeight: 700, color: t.textDim, textTransform: "uppercase" }}>{h}</span>
+                ))}
+              </div>
+              {holeSurveys.map((sv, i) => (
+                <div key={sv.id} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", padding: "10px 12px", borderTop: `1px solid ${t.border}`, background: i % 2 ? t.bgCard : "transparent", position: "relative" }}>
+                  {!sv.synced && <div style={{ position: "absolute", top: 10, right: 6, width: 6, height: 6, borderRadius: 3, background: t.warn }} />}
+                  <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>{sv.depth.toFixed(1)}</span>
+                  <span style={{ fontSize: 13, color: t.text }}>{sv.azimuth.toFixed(1)}</span>
+                  <span style={{ fontSize: 13, color: t.text }}>{sv.dip.toFixed(1)}</span>
+                  <span style={{ fontSize: 11, color: t.textMuted }}>{sv.method}</span>
+                </div>
+              ))}
+            </div>
+          </>)}
+
+          {/* ──── STRIP LOG TAB ──── */}
+          {selectedTab === "striplog" && (<>
+            <h4 style={{ margin: "0 0 12px", color: t.text, fontSize: 14, fontWeight: 700 }}>Visual Strip Log – {hole.holeId}</h4>
+            <StripLog logs={holeLogs} />
+            <div style={{ marginTop: 12 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: t.textMuted, textTransform: "uppercase", marginBottom: 8, display: "block" }}>Legend</span>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {[...new Set(holeLogs.map(l => l.lithology))].map(code => {
+                  const lith = LITHOLOGY_CODES.find(l => l.code === code);
+                  return (
+                    <div key={code} style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 6, background: t.bgCard, border: `1px solid ${t.border}` }}>
+                      <div style={{ width: 12, height: 12, borderRadius: 3, background: lith?.color }} />
+                      <span style={{ fontSize: 11, color: t.text }}>{code} – {lith?.name}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </>)}
+        </div>
+      </div>
+    );
+  };
+
+  // ─── AUDIT TRAIL VIEW ───
+  const AuditView = () => {
+    const actionColors = { CREATE: t.success, EDIT: t.info, SYNC: t.accent, DISPATCH: t.warn, DELETE: t.danger };
+    return (
+      <div style={{ padding: 16 }}>
+        <h3 style={{ margin: "0 0 16px", color: t.text, fontSize: 18, fontWeight: 800 }}>Audit Trail</h3>
+        <div style={{ fontSize: 12, color: t.textMuted, marginBottom: 16 }}>Complete history of all data changes and sync operations</div>
+        {auditLog.map(a => (
+          <div key={a.id} style={{ padding: 12, borderRadius: 10, background: t.bgCard, border: `1px solid ${t.border}`, marginBottom: 6, display: "flex", gap: 10 }}>
+            <div style={{
+              width: 32, height: 32, borderRadius: 8, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+              background: `${actionColors[a.action] || t.textMuted}18`,
+            }}>
+              <Icon d={a.action === "SYNC" ? Icons.sync : a.action === "CREATE" ? Icons.plus : a.action === "DISPATCH" ? Icons.export : Icons.edit} size={14} color={actionColors[a.action] || t.textMuted} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: actionColors[a.action], textTransform: "uppercase" }}>{a.action}</span>
+                <span style={{ fontSize: 10, color: t.textDim }}>{new Date(a.timestamp).toLocaleString()}</span>
+              </div>
+              <div style={{ fontSize: 12, color: t.text }}>{a.details}</div>
+              <div style={{ fontSize: 10, color: t.textDim, marginTop: 2 }}>By {a.user} • {a.entity}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  // ─── EXPORT/IMPORT VIEW ───
+  const ExportView = () => {
+    const [exportFormat, setExportFormat] = useState("csv");
+    const [exportType, setExportType] = useState("geology");
+
+    const handleExport = () => {
+      showToast(`Exported ${exportType} data as ${exportFormat.toUpperCase()}`, "success");
+      addAudit("EXPORT", exportType, "export", `Exported ${exportType} data in ${exportFormat} format`);
+    };
+
+    const handleImport = (type) => {
+      showToast(`Import ${type} - file picker would open on Android`, "info");
+    };
+
+    return (
+      <div style={{ padding: 16 }}>
+        <h3 style={{ margin: "0 0 16px", color: t.text, fontSize: 18, fontWeight: 800 }}>Export / Import</h3>
+
+        {/* Export Section */}
+        <div style={{ padding: 16, borderRadius: 12, background: t.bgCard, border: `1px solid ${t.border}`, marginBottom: 16 }}>
+          <h4 style={{ margin: "0 0 12px", color: t.accent, fontSize: 14, fontWeight: 700 }}>Export Data</h4>
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: t.textMuted, marginBottom: 6, textTransform: "uppercase" }}>Data Type</label>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {["geology", "geotech", "samples", "plods", "surveys", "all"].map(type => (
+                <button key={type} onClick={() => setExportType(type)}
+                  style={{ padding: "6px 14px", borderRadius: 8, border: `1px solid ${exportType === type ? t.accent : t.border}`, background: exportType === type ? t.accentBg : "transparent", color: exportType === type ? t.accent : t.textMuted, fontSize: 12, fontWeight: 600, cursor: "pointer", textTransform: "capitalize" }}>
+                  {type}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: t.textMuted, marginBottom: 6, textTransform: "uppercase" }}>Format</label>
+            <div style={{ display: "flex", gap: 6 }}>
+              {["csv", "xlsx", "json", "xml"].map(fmt => (
+                <button key={fmt} onClick={() => setExportFormat(fmt)}
+                  style={{ padding: "6px 14px", borderRadius: 8, border: `1px solid ${exportFormat === fmt ? t.accent : t.border}`, background: exportFormat === fmt ? t.accentBg : "transparent", color: exportFormat === fmt ? t.accent : t.textMuted, fontSize: 12, fontWeight: 600, cursor: "pointer", textTransform: "uppercase" }}>
+                  {fmt}
+                </button>
+              ))}
+            </div>
+          </div>
+          <button onClick={handleExport}
+            style={{ width: "100%", padding: 12, borderRadius: 10, border: "none", background: t.accent, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+            Export {exportType} as {exportFormat.toUpperCase()}
+          </button>
+        </div>
+
+        {/* Import Section */}
+        <div style={{ padding: 16, borderRadius: 12, background: t.bgCard, border: `1px solid ${t.border}` }}>
+          <h4 style={{ margin: "0 0 12px", color: t.info, fontSize: 14, fontWeight: 700 }}>Import Data</h4>
+          <div style={{ fontSize: 12, color: t.textMuted, marginBottom: 12 }}>Import assays, pXRF data, DDR/PLODs, downhole surveys, or hyperspectral data</div>
+          {["Assay Results", "pXRF Data", "DDR/PLOD Files", "Downhole Surveys", "Hyperspectral"].map(type => (
+            <button key={type} onClick={() => handleImport(type)}
+              style={{ width: "100%", padding: 12, borderRadius: 10, border: `1px solid ${t.border}`, background: t.bgInput, color: t.text, fontSize: 13, fontWeight: 600, cursor: "pointer", marginBottom: 6, display: "flex", alignItems: "center", gap: 10, textAlign: "left" }}>
+              <Icon d={Icons.log} size={16} color={t.info} />
+              {type}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  // ─── SETTINGS VIEW ───
+  const SettingsView = () => (
+    <div style={{ padding: 16 }}>
+      <h3 style={{ margin: "0 0 20px", color: t.text, fontSize: 18, fontWeight: 800 }}>Settings</h3>
+
+      <div style={{ padding: 16, borderRadius: 12, background: t.bgCard, border: `1px solid ${t.border}`, marginBottom: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: t.text }}>Dark Mode</div>
+            <div style={{ fontSize: 12, color: t.textMuted }}>Switch between light and dark themes</div>
+          </div>
+          <button onClick={() => setDarkMode(!darkMode)}
+            style={{ width: 48, height: 28, borderRadius: 14, border: "none", background: darkMode ? t.accent : t.border, cursor: "pointer", position: "relative", transition: "background 0.2s" }}>
+            <div style={{ width: 22, height: 22, borderRadius: 11, background: "#fff", position: "absolute", top: 3, left: darkMode ? 23 : 3, transition: "left 0.2s" }} />
+          </button>
+        </div>
+      </div>
+
+      <div style={{ padding: 16, borderRadius: 12, background: t.bgCard, border: `1px solid ${t.border}`, marginBottom: 12 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: t.text, marginBottom: 8 }}>Sync Configuration</div>
+        <div style={{ fontSize: 12, color: t.textMuted, marginBottom: 12 }}>Configure connection to your main database server</div>
+        {[
+          { label: "Server URL", value: "https://db.mining-corp.com" },
+          { label: "Database", value: "DataShed5_Production" },
+          { label: "API Key", value: "••••••••••••dk39" },
+        ].map(item => (
+          <div key={item.label} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${t.border}` }}>
+            <span style={{ fontSize: 12, color: t.textMuted }}>{item.label}</span>
+            <span style={{ fontSize: 12, color: t.text, fontFamily: "monospace" }}>{item.value}</span>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ padding: 16, borderRadius: 12, background: t.bgCard, border: `1px solid ${t.border}`, marginBottom: 12 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: t.text, marginBottom: 8 }}>User Profile</div>
+        {[
+          { label: "Name", value: "Karthik" },
+          { label: "Role", value: "Senior Geologist" },
+          { label: "Company", value: "Mining Corp" },
+        ].map(item => (
+          <div key={item.label} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${t.border}` }}>
+            <span style={{ fontSize: 12, color: t.textMuted }}>{item.label}</span>
+            <span style={{ fontSize: 12, color: t.text }}>{item.value}</span>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ padding: 16, borderRadius: 12, background: t.bgCard, border: `1px solid ${t.border}` }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: t.text, marginBottom: 8 }}>Validation Rules</div>
+        <div style={{ fontSize: 12, color: t.textMuted, marginBottom: 8 }}>Data validation templates downloaded from database</div>
+        {["Lithology Lookup Table", "Alteration Codes", "Sample ID Format", "Survey Tolerance (±2°)", "Depth Overlap Check"].map(rule => (
+          <div key={rule} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0" }}>
+            <Icon d={Icons.check} size={14} color={t.success} />
+            <span style={{ fontSize: 12, color: t.text }}>{rule}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  // ─── NAVIGATION ───
+  const navItems = [
+    { key: "dashboard", label: "Dashboard", icon: Icons.home },
+    { key: "audit", label: "Audit Trail", icon: Icons.audit },
+    { key: "export", label: "Export/Import", icon: Icons.export },
+    { key: "settings", label: "Settings", icon: Icons.settings },
+  ];
+
+  return (
+    <div style={{
+      width: "100%", maxWidth: 480, margin: "0 auto", height: "100vh", display: "flex", flexDirection: "column",
+      background: t.bg, color: t.text, fontFamily: "'DM Sans', 'Nunito', sans-serif", position: "relative", overflow: "hidden",
+    }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap');
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        @keyframes slideUp { from { transform: translateY(60px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: ${t.border}; border-radius: 2px; }
+        select option { background: ${t.bgCard}; color: ${t.text}; }
+      `}</style>
+
+      {/* ──── TOP BAR ──── */}
+      <div style={{
+        display: "flex", alignItems: "center", padding: "10px 16px", borderBottom: `1px solid ${t.border}`,
+        background: t.bgCard, zIndex: 50, flexShrink: 0,
+      }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ width: 28, height: 28, borderRadius: 7, background: `linear-gradient(135deg, ${t.accent}, #FF8F65)`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Icon d={Icons.layers} size={14} color="#fff" />
+            </div>
+            <span style={{ fontSize: 17, fontWeight: 800, color: t.text, letterSpacing: "-0.02em" }}>DrillLog<span style={{ color: t.accent }}>Pro</span></span>
+          </div>
+        </div>
+        {/* Sync indicator */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginRight: 4 }}>
+          {syncStatus === "syncing" && <div style={{ width: 8, height: 8, borderRadius: 4, background: t.warn, animation: "pulse 1s infinite" }} />}
+          <div style={{ width: 8, height: 8, borderRadius: 4, background: syncStatus === "synced" ? t.success : syncStatus === "syncing" ? t.warn : t.textDim }} />
+          <span style={{ fontSize: 10, color: t.textDim }}>{syncStatus === "synced" ? "Synced" : syncStatus === "syncing" ? "Syncing" : "Offline"}</span>
+        </div>
+      </div>
+
+      {/* ──── MAIN CONTENT ──── */}
+      <div style={{ flex: 1, overflow: "auto" }}>
+        {currentView === "dashboard" && <DashboardView />}
+        {currentView === "holeDetail" && <HoleDetailView />}
+        {currentView === "audit" && <AuditView />}
+        {currentView === "export" && <ExportView />}
+        {currentView === "settings" && <SettingsView />}
+      </div>
+
+      {/* ──── BOTTOM NAV ──── */}
+      {currentView !== "holeDetail" && (
+        <div style={{
+          display: "flex", borderTop: `1px solid ${t.border}`, background: t.bgCard, flexShrink: 0,
+          paddingBottom: "env(safe-area-inset-bottom, 8px)",
+        }}>
+          {navItems.map(item => (
+            <button key={item.key} onClick={() => setCurrentView(item.key)}
+              style={{
+                flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
+                padding: "10px 0 6px", background: "none", border: "none", cursor: "pointer",
+                color: currentView === item.key ? t.accent : t.textDim,
+              }}>
+              <Icon d={item.icon} size={20} color={currentView === item.key ? t.accent : t.textDim} />
+              <span style={{ fontSize: 10, fontWeight: currentView === item.key ? 700 : 500 }}>{item.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* ──── FORM MODAL ──── */}
+      {showForm && <FormModal />}
+
+      {/* ──── TOAST ──── */}
+      {toast && (
+        <div style={{
+          position: "fixed", bottom: 80, left: "50%", transform: "translateX(-50%)", zIndex: 300,
+          padding: "10px 20px", borderRadius: 10,
+          background: toast.type === "success" ? t.success : toast.type === "danger" ? t.danger : toast.type === "info" ? t.info : t.warn,
+          color: "#fff", fontSize: 13, fontWeight: 700, boxShadow: "0 4px 20px rgba(0,0,0,0.3)",
+          animation: "slideUp 0.3s ease-out", whiteSpace: "nowrap",
+        }}>
+          {toast.msg}
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(createElement(DrillLogPro));
+</script>
+</body>
 </html>
